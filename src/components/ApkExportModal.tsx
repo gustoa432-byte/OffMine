@@ -35,7 +35,7 @@ jobs:
           java-version: '17'
 
       - name: 4. Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: 5. Install NPM Dependencies
         run: npm install --legacy-peer-deps
