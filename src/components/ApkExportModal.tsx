@@ -27,7 +27,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22.15.0'
-          cache: 'npm'
 
       - name: 3. Setup Java JDK 17 (Temurin)
         uses: actions/setup-java@v4
@@ -47,9 +46,20 @@ jobs:
             node ./node_modules/llama.rn/install/download-native-artifacts.js
           fi
 
-      - name: 7. Ensure Debug Keystore Exists for APK Signing
+      - name: 7. Ensure Keystores Exist for Signed Release APK
         run: |
           mkdir -p android/app
+          if [ ! -f "android/app/release.keystore" ]; then
+            keytool -genkeypair -v \\
+              -storepass android \\
+              -keystore android/app/release.keystore \\
+              -alias releasekey \\
+              -keypass android \\
+              -keyalg RSA \\
+              -keysize 2048 \\
+              -validity 10000 \\
+              -dname "CN=PocketCore Release,O=PocketCore,C=US"
+          fi
           if [ ! -f "android/app/debug.keystore" ]; then
             keytool -genkeypair -v \\
               -storepass android \\
@@ -90,6 +100,21 @@ jobs:
         }
     }
 
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        release {
+            storeFile file('release.keystore')
+            storePassword 'android'
+            keyAlias 'releasekey'
+            keyPassword 'android'
+        }
+    }
+
     packagingOptions {
         pickFirst '**/libc++_shared.so'
         pickFirst '**/libfbjni.so'
@@ -99,7 +124,7 @@ jobs:
 
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig file('release.keystore').exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             shrinkResources false
         }

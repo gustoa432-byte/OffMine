@@ -26,6 +26,12 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            storeFile file('release.keystore')
+            storePassword 'android'
+            keyAlias 'releasekey'
+            keyPassword 'android'
+        }
     }
 
     buildTypes {
@@ -33,7 +39,7 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.debug
+            signingConfig file('release.keystore').exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
