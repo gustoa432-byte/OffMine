@@ -61,9 +61,13 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: 8. Make Gradlew Executable & Build Signed Release APK
+      - name: 8. Ensure Gradle Wrapper & Build Signed Release APK
         working-directory: ./android
         run: |
+          mkdir -p gradle/wrapper
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.10.2/gradle/wrapper/gradle-wrapper.jar
+          fi
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
 
