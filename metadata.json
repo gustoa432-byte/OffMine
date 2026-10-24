@@ -1,0 +1,6 @@
+{
+  "name": "PocketCore AI - Offline LLM",
+  "description": "Production-ready offline LLM runner for Android with Apple Dark Glassmorphism, model manager, GGUF streaming, and DeepSeek reasoning tags.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

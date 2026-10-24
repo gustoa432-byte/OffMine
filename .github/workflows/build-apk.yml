@@ -1,0 +1,65 @@
+name: Build Offline AI Android APK
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: 3. Setup Java JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 4. Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 5. Install NPM Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: 6. Download Pre-built Native Artifacts for llama.rn
+        run: |
+          if [ -f "./node_modules/llama.rn/install/download-native-artifacts.js" ]; then
+            node ./node_modules/llama.rn/install/download-native-artifacts.js
+          fi
+
+      - name: 7. Ensure Debug Keystore Exists for APK Signing
+        run: |
+          mkdir -p android/app
+          if [ ! -f "android/app/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -storepass android \
+              -keystore android/app/debug.keystore \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: 8. Make Gradlew Executable & Build Signed Release APK
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: 9. Upload Ready-to-Install APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PocketCore-Offline-AI-APK
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
