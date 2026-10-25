@@ -146,7 +146,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         } catch (e) {}
       }
 
-      // 3. Hydrate installed models check
+      // 3. Hydrate settings first so activateModel uses configured contextSize
+      const savedSettingsStr = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      let effectiveSettings = DEFAULT_GENERATION_SETTINGS;
+      if (savedSettingsStr) {
+        try {
+          effectiveSettings = { ...DEFAULT_GENERATION_SETTINGS, ...JSON.parse(savedSettingsStr) };
+        } catch (e) {}
+      }
+      set({ settings: effectiveSettings });
+
+      // 4. Hydrate installed models check
       const installed = new Set<string>();
       for (const m of allModels) {
         const isInst = await modelManager.isModelInstalled(m);
@@ -155,31 +165,22 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
-      // 4. Restore active model
+      // 5. Restore active model with effective settings
       const activeId = await modelManager.getActiveModelId();
       let effectiveActiveId = activeId;
       if (activeId && installed.has(activeId)) {
         const found = allModels.find((m) => m.id === activeId);
         if (found) {
-          await modelManager.activateModel(found);
+          await modelManager.activateModel(found, effectiveSettings);
         }
       } else if (installed.size > 0) {
         // Fallback to first installed
         const first = Array.from(installed)[0];
         const found = allModels.find((m) => m.id === first);
         if (found) {
-          await modelManager.activateModel(found);
+          await modelManager.activateModel(found, effectiveSettings);
           effectiveActiveId = first;
         }
-      }
-
-      // 5. Hydrate settings
-      const savedSettingsStr = localStorage.getItem(SETTINGS_STORAGE_KEY);
-      let effectiveSettings = DEFAULT_GENERATION_SETTINGS;
-      if (savedSettingsStr) {
-        try {
-          effectiveSettings = { ...DEFAULT_GENERATION_SETTINGS, ...JSON.parse(savedSettingsStr) };
-        } catch (e) {}
       }
 
       const telemetry = await modelManager.getStorageTelemetry();
@@ -187,7 +188,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         installedModelIds: installed,
         activeModelId: effectiveActiveId,
-        settings: effectiveSettings,
         telemetry,
       });
     } catch (err) {
@@ -438,14 +438,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     try {
-      await modelManager.downloadModel(model, (progress) => {
-        set((state) => ({
-          downloadProgress: {
-            ...state.downloadProgress,
-            [model.id]: progress,
-          },
-        }));
-      });
+      await modelManager.downloadModel(
+        model,
+        (progress) => {
+          set((state) => ({
+            downloadProgress: {
+              ...state.downloadProgress,
+              [model.id]: progress,
+            },
+          }));
+        },
+        get().settings
+      );
 
       // Verification state
       set((state) => {

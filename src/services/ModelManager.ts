@@ -68,7 +68,8 @@ export class ModelManagerService {
    */
   public async downloadModel(
     model: ModelInfo,
-    onProgress: (progress: DownloadProgress) => void
+    onProgress: (progress: DownloadProgress) => void,
+    settings?: import('../types').GenerationSettings
   ): Promise<string> {
     const abortCtrl = new AbortController();
     this.activeJobs.set(model.id, { abortController: abortCtrl });
@@ -79,8 +80,8 @@ export class ModelManagerService {
     try {
       // Directly invoke Wllama's loadModelFromUrl which writes chunks directly to OPFS
       await llamaService.loadModel(model.url, {
-        n_ctx: 2048,
-        n_threads: 4,
+        n_ctx: settings?.contextSize || 1024,
+        n_threads: settings?.nThreads || 4,
         onProgress: (loaded, total) => {
           if (abortCtrl.signal.aborted) {
             throw new Error('Загрузка отменена пользователем');

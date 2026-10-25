@@ -63,14 +63,24 @@ jobs:
             const file = "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/WebViewLocalServer.java";
             if (fs.existsSync(file)) {
               let code = fs.readFileSync(file, "utf8");
-              if (!code.includes("Cross-Origin-Opener-Policy")) {
+              const headersBlock = \`responseHeaders.put("Cross-Origin-Opener-Policy", "same-origin");\\n        responseHeaders.put("Cross-Origin-Embedder-Policy", "credentialless");\\n        responseHeaders.put("Cross-Origin-Resource-Policy", "cross-origin");\`;
+              
+              if (code.includes(\`tempResponseHeaders.put("Cache-Control", "no-cache");\`)) {
                 code = code.replace(
-                  /Map<String,\s*String>\s+responseHeaders\s*=\s*new\s+(?:Linked)?HashMap<>\(\);/g,
-                  "Map<String, String> responseHeaders = new LinkedHashMap<>();\\n        responseHeaders.put(\\"Cross-Origin-Opener-Policy\\", \\"same-origin\\");\\n        responseHeaders.put(\\"Cross-Origin-Embedder-Policy\\", \\"credentialless\\");\\n        responseHeaders.put(\\"Cross-Origin-Resource-Policy\\", \\"cross-origin\\");"
+                  \`tempResponseHeaders.put("Cache-Control", "no-cache");\`,
+                  \`tempResponseHeaders.put("Cache-Control", "no-cache");\\n            tempResponseHeaders.put("Cross-Origin-Opener-Policy", "same-origin");\\n            tempResponseHeaders.put("Cross-Origin-Embedder-Policy", "credentialless");\\n            tempResponseHeaders.put("Cross-Origin-Resource-Policy", "cross-origin");\`
                 );
-                fs.writeFileSync(file, code, "utf8");
-                console.log("Successfully patched WebViewLocalServer.java for Multi-Thread WASM!");
               }
+              code = code.replace(
+                /this\\.responseHeaders\\s*=\\s*new\\s+HashMap<>\\(\\);/g,
+                \`this.responseHeaders = new HashMap<>();\\n            this.\\\${headersBlock}\`
+              );
+              code = code.replace(
+                /Map<String,\\s*String>\\s+responseHeaders\\s*=\\s*handler\\.getResponseHeaders\\(\\);/g,
+                \`Map<String, String> responseHeaders = new HashMap<>(handler.getResponseHeaders());\\n        \\\${headersBlock}\`
+              );
+              fs.writeFileSync(file, code, "utf8");
+              console.log("Patched WebViewLocalServer.java successfully!");
             }
           '
 
