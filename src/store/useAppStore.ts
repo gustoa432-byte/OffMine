@@ -271,7 +271,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (activeModelId) {
         const modelToLoad = models.find((m) => m.id === activeModelId);
         if (modelToLoad) {
-          await modelManager.activateModel(modelToLoad);
+          await modelManager.activateModel(modelToLoad, settings);
         }
       } else {
         // Open Model Hub so user can pick / download a model
@@ -325,8 +325,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     try {
-      // Build history for completion
+      // Build history for completion, filtering out UI welcome banner to prevent massive prefill delay
       const historyPayload = currentSession.messages
+        .filter((m) => m.id !== 'welcome-msg' && m.content.trim().length > 0)
+        .slice(-6)
         .concat(userMessage)
         .map((m) => ({ role: m.role, content: m.content }));
 
@@ -507,7 +509,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   activateModel: async (model: ModelInfo) => {
-    await modelManager.activateModel(model);
+    await modelManager.activateModel(model, get().settings);
     set({ activeModelId: model.id });
     await get().refreshTelemetry();
   },

@@ -74,16 +74,22 @@ export class LlamaService {
         await this.releaseCurrentModel();
       }
 
-      const n_ctx = options?.n_ctx || 2048;
-      const n_threads = options?.n_threads || 4;
+      const isMultiThreadAvailable = typeof window !== 'undefined' && window.crossOriginIsolated === true;
+      const defaultThreads = isMultiThreadAvailable
+        ? Math.min(navigator.hardwareConcurrency || 4, 6)
+        : 1;
+      const effectiveThreads = options?.n_threads || defaultThreads;
+      const effectiveCtx = options?.n_ctx || 1024;
+
       const wllama = await this.getWllama();
 
       await wllama.loadModelFromUrl(modelUrl, {
         useCache: true,
         allowOffline: true,
         parallelDownloads: 1, // Required for stable download in mobile WebView without OOM
-        n_ctx,
-        n_threads,
+        n_ctx: effectiveCtx,
+        n_batch: 128,
+        n_threads: effectiveThreads,
         progressCallback: (opts) => {
           if (options?.onProgress) {
             options.onProgress(opts.loaded, opts.total);
@@ -121,6 +127,7 @@ export class LlamaService {
     this.abortController = new AbortController();
 
     const startTime = Date.now();
+    let generationStartTime = 0;
     let tokenCount = 0;
     let accumulatedText = '';
 
@@ -134,6 +141,7 @@ export class LlamaService {
       ];
 
       await wllama.createChatCompletion(formattedMessages, {
+        useCache: true, // Retain KV-cache to avoid re-evaluating prompt history every turn
         nPredict: settings.nPredict,
         sampling: {
           temp: settings.temperature,
@@ -147,12 +155,18 @@ export class LlamaService {
             }
             return;
           }
+
           tokenCount++;
+          if (tokenCount === 1) {
+            generationStartTime = Date.now();
+          }
+
           const newChunk = currentText.slice(accumulatedText.length);
           accumulatedText = currentText;
 
-          const elapsedSec = Math.max((Date.now() - startTime) / 1000, 0.05);
-          const tokensPerSecond = parseFloat((tokenCount / elapsedSec).toFixed(1));
+          // Accurately measure tok/s starting from the arrival of the first generated token
+          const genDuration = Math.max((Date.now() - (generationStartTime || startTime)) / 1000, 0.05);
+          const tokensPerSecond = parseFloat((tokenCount / genDuration).toFixed(1));
 
           onToken({
             token: newChunk,
@@ -163,8 +177,8 @@ export class LlamaService {
       } as any);
 
       this.isGenerating = false;
-      const totalDurationSec = Math.max((Date.now() - startTime) / 1000, 0.05);
-      const finalTokSec = parseFloat((tokenCount / totalDurationSec).toFixed(1));
+      const totalGenDuration = Math.max((Date.now() - (generationStartTime || startTime)) / 1000, 0.05);
+      const finalTokSec = parseFloat((tokenCount / totalGenDuration).toFixed(1));
 
       return {
         fullText: accumulatedText,
@@ -174,10 +188,10 @@ export class LlamaService {
     } catch (err: any) {
       this.isGenerating = false;
       if (err?.name === 'WllamaAbortError' || this.abortController?.signal.aborted) {
-        const totalDurationSec = Math.max((Date.now() - startTime) / 1000, 0.05);
+        const totalGenDuration = Math.max((Date.now() - (generationStartTime || startTime)) / 1000, 0.05);
         return {
           fullText: accumulatedText,
-          tokensPerSecond: parseFloat((tokenCount / totalDurationSec).toFixed(1)),
+          tokensPerSecond: parseFloat((tokenCount / totalGenDuration).toFixed(1)),
           totalTokens: tokenCount,
         };
       }

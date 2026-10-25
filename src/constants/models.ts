@@ -4,12 +4,12 @@ export const PRESET_MODELS: ModelInfo[] = [
   {
     id: 'qwen2.5-0.5b-instruct',
     name: 'Qwen 2.5 (0.5B) Instruct',
-    sizeLabel: '491 МБ',
-    expectedMinBytes: 450000000,
-    description: 'Молниеносная модель (30–50 tok/s). Минимум расхода батареи и ОЗУ, идеальна для быстрых ответов.',
-    url: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf',
-    filename: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
-    quantization: 'Q4_K_M',
+    sizeLabel: '352 МБ',
+    expectedMinBytes: 310000000,
+    description: 'Молниеносная модель (15–30 tok/s на CPU). Формат Q4_0 оптимизирован под SIMD WebAssembly.',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf',
+    filename: 'qwen2.5-0.5b-instruct-q4_0.gguf',
+    quantization: 'Q4_0 (Fast SIMD)',
   },
   {
     id: 'llama-3.2-1b-instruct',
@@ -34,12 +34,12 @@ export const PRESET_MODELS: ModelInfo[] = [
   {
     id: 'qwen2.5-1.5b-instruct',
     name: 'Qwen 2.5 (1.5B) Instruct',
-    sizeLabel: '1.12 ГБ',
-    expectedMinBytes: 1050000000,
-    description: 'Топовое качество текста, переводы и грамотный русский язык в классе до 1.5B.',
-    url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
-    filename: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
-    quantization: 'Q4_K_M',
+    sizeLabel: '935 МБ',
+    expectedMinBytes: 850000000,
+    description: 'Топовое качество текста и грамотный русский язык. Формат Q4_0 ускорен под SIMD.',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_0.gguf',
+    filename: 'qwen2.5-1.5b-instruct-q4_0.gguf',
+    quantization: 'Q4_0 (Fast SIMD)',
   },
   {
     id: 'qwen2.5-coder-1.5b-instruct',
@@ -54,11 +54,11 @@ export const PRESET_MODELS: ModelInfo[] = [
 ];
 
 export const DEFAULT_GENERATION_SETTINGS = {
-  systemPrompt: 'Ты — полезный, умный и лаконичный ИИ-ассистент PocketCore. Отвечай точно и структурированно.',
-  temperature: 0.7,
+  systemPrompt: 'Ты — умный ИИ-ассистент. Отвечай кратко, точно и по делу на русском языке.',
+  temperature: 0.6,
   topP: 0.9,
-  contextSize: 2048,
-  nPredict: 1024,
+  contextSize: 1024,
+  nPredict: 512,
   nThreads: 4,
 };
 

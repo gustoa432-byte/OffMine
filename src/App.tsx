@@ -26,6 +26,7 @@ export default function App() {
     activeModelId,
     models,
     isGenerating,
+    settings,
     sendMessage,
     stopGeneration,
     clearCurrentChat,
@@ -42,6 +43,7 @@ export default function App() {
 
   const currentSession = sessions.find((s) => s.id === currentSessionId) || sessions[0];
   const activeModel = models.find((m) => m.id === activeModelId);
+  const isIsolated = typeof window !== 'undefined' && window.crossOriginIsolated === true;
 
   // Auto-scroll to bottom as streaming tokens arrive
   useEffect(() => {
@@ -221,8 +223,12 @@ export default function App() {
 
             <div className="mt-1.5 flex items-center justify-between px-2 text-[10px] text-[#8E93A6]">
               <span className="flex items-center gap-1.5 truncate">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#30D158]"></span>
-                <span className="truncate">Офлайн инференс • GGUF Q4_K_M</span>
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isIsolated ? 'bg-[#30D158]' : 'bg-[#FFD60A]'}`}></span>
+                <span className="truncate">
+                  {isIsolated
+                    ? `🟢 Multi-Thread WASM (${settings.nThreads} потоков) • SIMD`
+                    : '🟡 Single-Thread режим'}
+                </span>
               </span>
               <span className="hidden sm:inline">Shift+Enter для новой строки</span>
             </div>

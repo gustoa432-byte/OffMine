@@ -38,7 +38,7 @@ jobs:
           npx cap add android
           npx cap sync android
 
-      - name: 7. Configure AndroidManifest & Gradle Memory
+      - name: 7. Enable Multi-Thread SharedArrayBuffer (COOP/COEP) & LargeHeap in Android
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST" ]; then
@@ -46,6 +46,22 @@ jobs:
           fi
           echo "" >> android/gradle.properties
           echo "org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8" >> android/gradle.properties
+
+          node -e '
+            const fs = require("fs");
+            const file = "node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/WebViewLocalServer.java";
+            if (fs.existsSync(file)) {
+              let code = fs.readFileSync(file, "utf8");
+              if (!code.includes("Cross-Origin-Opener-Policy")) {
+                code = code.replace(
+                  /Map<String,\s*String>\s+responseHeaders\s*=\s*new\s+(?:Linked)?HashMap<>\(\);/g,
+                  "Map<String, String> responseHeaders = new LinkedHashMap<>();\n        responseHeaders.put(\"Cross-Origin-Opener-Policy\", \"same-origin\");\n        responseHeaders.put(\"Cross-Origin-Embedder-Policy\", \"credentialless\");\n        responseHeaders.put(\"Cross-Origin-Resource-Policy\", \"cross-origin\");"
+                );
+                fs.writeFileSync(file, code, "utf8");
+                console.log("Successfully patched WebViewLocalServer.java for Multi-Thread WASM!");
+              }
+            }
+          '
 
       - name: 8. Build Signed Installable APK via Gradle
         working-directory: ./android

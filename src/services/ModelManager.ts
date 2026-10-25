@@ -169,8 +169,11 @@ export class ModelManagerService {
   /**
    * Activates an already installed model from OPFS into RAM
    */
-  public async activateModel(model: ModelInfo): Promise<void> {
-    await llamaService.loadModel(model.url);
+  public async activateModel(model: ModelInfo, settings?: import('../types').GenerationSettings): Promise<void> {
+    await llamaService.loadModel(model.url, {
+      n_ctx: settings?.contextSize || 1024,
+      n_threads: settings?.nThreads || 4,
+    });
     await this.saveActiveModelId(model.id);
   }
 

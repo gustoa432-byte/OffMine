@@ -8,6 +8,7 @@ export const Header: React.FC = () => {
     models,
     isGenerating,
     currentTokensPerSecond,
+    settings,
     setDrawerOpen,
     createSession,
     setModelHubOpen,
@@ -16,6 +17,7 @@ export const Header: React.FC = () => {
   } = useAppStore();
 
   const activeModel = models.find((m) => m.id === activeModelId);
+  const isIsolated = typeof window !== 'undefined' && window.crossOriginIsolated === true;
 
   return (
     <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-white/10 bg-[#090A0F]/80 px-3.5 backdrop-blur-xl sm:px-6">
@@ -72,8 +74,25 @@ export const Header: React.FC = () => {
         </button>
       </div>
 
-      {/* Right zone: Live Telemetry + Settings + APK Builder */}
+      {/* Right zone: Live Telemetry + Engine Mode + Settings + APK Builder */}
       <div className="flex items-center gap-2">
+        {/* Engine Multi-Thread status indicator */}
+        <div
+          className={`hidden sm:flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+            isIsolated
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+              : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+          }`}
+          title={
+            isIsolated
+              ? 'SharedArrayBuffer активен: используется многопоточный WASM SIMD'
+              : 'SharedArrayBuffer не активен: однопоточный режим (требуются заголовки COOP/COEP)'
+          }
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${isIsolated ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+          <span>{isIsolated ? `Multi-Thread (${settings.nThreads} потоков)` : 'Single-Thread'}</span>
+        </div>
+
         {/* Live Generation Telemetry Badge */}
         {isGenerating && currentTokensPerSecond > 0 && (
           <div className="flex items-center gap-1 rounded-full border border-[#30D158]/30 bg-[#30D158]/10 px-2.5 py-1 font-mono text-xs font-semibold text-[#30D158]">
