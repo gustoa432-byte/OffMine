@@ -1,13 +1,15 @@
 name: Build Offline AI Android APK
+
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "**" ]
   workflow_dispatch:
 
 jobs:
-  build-android:
+  build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+
     steps:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
@@ -15,65 +17,46 @@ jobs:
       - name: 2. Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '22.15.0'
+          node-version: '22'
 
-      - name: 3. Setup Java JDK 17 (Temurin)
+      - name: 3. Setup Java JDK 21 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: 4. Setup Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3
 
-      - name: 5. Install NPM Dependencies
-        run: npm install --legacy-peer-deps
-
-      - name: 6. Download Pre-built Native Artifacts for llama.rn
+      - name: 5. Clean Broken Artifacts & Install NPM Dependencies
         run: |
-          if [ -f "./node_modules/llama.rn/install/download-native-artifacts.js" ]; then
-            node ./node_modules/llama.rn/install/download-native-artifacts.js
-          fi
+          rm -rf android dist node_modules package-lock.json
+          npm install --legacy-peer-deps
 
-      - name: 7. Ensure Keystores Exist for Signed Release APK
+      - name: 6. Build Production Web Bundle (Vite)
+        run: npm run build
+
+      - name: 7. Generate Fresh Native Android Project via Capacitor
         run: |
-          mkdir -p android/app
-          if [ ! -f "android/app/release.keystore" ]; then
-            keytool -genkeypair -v \
-              -storepass android \
-              -keystore android/app/release.keystore \
-              -alias releasekey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=PocketCore Release,O=PocketCore,C=US"
-          fi
-          if [ ! -f "android/app/debug.keystore" ]; then
-            keytool -genkeypair -v \
-              -storepass android \
-              -keystore android/app/debug.keystore \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
+          npx cap add android
+          npx cap sync android
+
+      - name: 8. Configure AndroidManifest (LargeHeap & Cleartext/HTTPS)
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            sed -i 's/<application/<application android:largeHeap="true" android:usesCleartextTraffic="true"/g' "$MANIFEST"
           fi
 
-      - name: 8. Ensure Gradle Wrapper & Build Signed Release APK
+      - name: 9. Build Signed Installable APK via Gradle
         working-directory: ./android
         run: |
-          mkdir -p gradle/wrapper
-          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.10.2/gradle/wrapper/gradle-wrapper.jar
-          fi
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: 9. Upload Ready-to-Install APK Artifact
+      - name: 10. Rename and Upload Ready-to-Install APK
         uses: actions/upload-artifact@v4
         with:
           name: PocketCore-Offline-AI-APK
-          path: android/app/build/outputs/apk/release/*.apk
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error

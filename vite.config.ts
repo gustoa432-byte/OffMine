@@ -1,32 +1,38 @@
-import tailwindcss from '@tailwindcss/vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
-import {defineConfig} from 'vite';
 
-export default defineConfig(() => {
-  return {
-    plugins: [react(), tailwindcss()],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
+export default defineConfig({
+  base: './',
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: [
+      { find: /^@wllama\/wllama$/, replacement: path.resolve(__dirname, 'node_modules/@wllama/wllama/esm/index.js') },
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+    ],
+  },
+  optimizeDeps: {
+    exclude: ['@wllama/wllama'],
+  },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: false,
+  },
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
     },
-    build: {
-      rollupOptions: {
-        external: [
-          'react-native',
-          'llama.rn',
-          'react-native-fs',
-          '@react-native-async-storage/async-storage',
-        ],
-      },
+    // HMR is disabled in AI Studio via DISABLE_HMR env var.
+    hmr: process.env.DISABLE_HMR !== 'true',
+    watch: process.env.DISABLE_HMR === 'true' ? null : {},
+  },
+  preview: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
     },
-    server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify—file watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
-    },
-  };
+  },
 });

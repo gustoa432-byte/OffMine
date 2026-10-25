@@ -4,21 +4,23 @@ import { useAppStore } from '../store/useAppStore';
 
 export const ApkExportModal: React.FC = () => {
   const { isApkModalOpen, setApkModalOpen } = useAppStore();
-  const [activeTab, setActiveTab] = useState<'workflow' | 'gradle' | 'manifest'>('workflow');
+  const [activeTab, setActiveTab] = useState<'workflow' | 'capacitor' | 'vite'>('workflow');
   const [copied, setCopied] = useState(false);
 
   if (!isApkModalOpen) return null;
 
   const workflowYaml = `name: Build Offline AI Android APK
+
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "**" ]
   workflow_dispatch:
 
 jobs:
-  build-android:
+  build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+
     steps:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
@@ -26,260 +28,202 @@ jobs:
       - name: 2. Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '22.15.0'
+          node-version: '22'
 
-      - name: 3. Setup Java JDK 17 (Temurin)
+      - name: 3. Setup Java JDK 21 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: 4. Setup Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3
 
-      - name: 5. Install NPM Dependencies
-        run: npm install --legacy-peer-deps
-
-      - name: 6. Download Pre-built Native Artifacts for llama.rn
+      - name: 5. Clean Broken Artifacts & Install NPM Dependencies
         run: |
-          if [ -f "./node_modules/llama.rn/install/download-native-artifacts.js" ]; then
-            node ./node_modules/llama.rn/install/download-native-artifacts.js
-          fi
+          rm -rf android dist node_modules package-lock.json
+          npm install --legacy-peer-deps
 
-      - name: 7. Ensure Keystores Exist for Signed Release APK
+      - name: 6. Build Production Web Bundle (Vite)
+        run: npm run build
+
+      - name: 7. Generate Fresh Native Android Project via Capacitor
         run: |
-          mkdir -p android/app
-          if [ ! -f "android/app/release.keystore" ]; then
-            keytool -genkeypair -v \\
-              -storepass android \\
-              -keystore android/app/release.keystore \\
-              -alias releasekey \\
-              -keypass android \\
-              -keyalg RSA \\
-              -keysize 2048 \\
-              -validity 10000 \\
-              -dname "CN=PocketCore Release,O=PocketCore,C=US"
-          fi
-          if [ ! -f "android/app/debug.keystore" ]; then
-            keytool -genkeypair -v \\
-              -storepass android \\
-              -keystore android/app/debug.keystore \\
-              -alias androiddebugkey \\
-              -keypass android \\
-              -keyalg RSA \\
-              -keysize 2048 \\
-              -validity 10000 \\
-              -dname "CN=Android Debug,O=Android,C=US"
+          npx cap add android
+          npx cap sync android
+
+      - name: 8. Configure AndroidManifest (LargeHeap & Cleartext/HTTPS)
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            sed -i 's/<application/<application android:largeHeap="true" android:usesCleartextTraffic="true"/g' "$MANIFEST"
           fi
 
-      - name: 8. Ensure Gradle Wrapper & Build Signed Release APK
+      - name: 9. Build Signed Installable APK via Gradle
         working-directory: ./android
         run: |
-          mkdir -p gradle/wrapper
-          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.10.2/gradle/wrapper/gradle-wrapper.jar
-          fi
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: 9. Upload Ready-to-Install APK Artifact
+      - name: 10. Rename and Upload Ready-to-Install APK
         uses: actions/upload-artifact@v4
         with:
           name: PocketCore-Offline-AI-APK
-          path: android/app/build/outputs/apk/release/*.apk
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error`;
 
-  const gradleCode = `android {
-    ndkVersion rootProject.ext.ndkVersion
-    compileSdkVersion 34
-
-    defaultConfig {
-        applicationId "com.pocketcore.ai"
-        minSdkVersion 26
-        targetSdkVersion 34
-        versionCode 1
-        versionName "1.0.0"
-        ndk {
-            abiFilters "arm64-v8a"
-        }
-    }
-
-    signingConfigs {
-        debug {
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
-        }
-        release {
-            storeFile file('release.keystore')
-            storePassword 'android'
-            keyAlias 'releasekey'
-            keyPassword 'android'
-        }
-    }
-
-    packagingOptions {
-        pickFirst '**/libc++_shared.so'
-        pickFirst '**/libfbjni.so'
-        pickFirst '**/libllama.so'
-        pickFirst '**/librnllama*.so'
-    }
-
-    buildTypes {
-        release {
-            signingConfig file('release.keystore').exists() ? signingConfigs.release : signingConfigs.debug
-            minifyEnabled false
-            shrinkResources false
-        }
-    }
+  const capacitorConfig = `{
+  "appId": "com.pocketcore.offlineai",
+  "appName": "PocketCore AI",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
 }`;
 
-  const manifestXml = `<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <application
-      android:name=".MainApplication"
-      android:label="@string/app_name"
-      android:icon="@mipmap/ic_launcher"
-      android:roundIcon="@mipmap/ic_launcher_round"
-      android:allowBackup="false"
-      android:theme="@style/AppTheme"
-      android:largeHeap="true"
-      android:supportsRtl="true">
-      <activity
-        android:name=".MainActivity"
-        android:label="@string/app_name"
-        android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-        android:launchMode="singleTask"
-        android:windowSoftInputMode="adjustResize"
-        android:exported="true">
-        <intent-filter>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent-filter>
-      </activity>
-    </application>
-</manifest>`;
+  const viteConfig = `import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
-  const activeContent =
-    activeTab === 'workflow' ? workflowYaml : activeTab === 'gradle' ? gradleCode : manifestXml;
+export default defineConfig({
+  base: './',
+  plugins: [react(), tailwindcss()],
+  optimizeDeps: {
+    exclude: ['@wllama/wllama'],
+  },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: false,
+  },
+});`;
+
+  const getActiveCode = () => {
+    switch (activeTab) {
+      case 'workflow':
+        return workflowYaml;
+      case 'capacitor':
+        return capacitorConfig;
+      case 'vite':
+        return viteConfig;
+    }
+  };
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(activeContent);
+    navigator.clipboard.writeText(getActiveCode());
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
-      <div
-        className="fixed inset-0 bg-black/80 backdrop-blur-md transition-opacity"
-        onClick={() => setApkModalOpen(false)}
-      />
-
-      <div className="relative z-10 flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[#12141D] text-[#F5F7FA] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[#30D158] to-[#0A84FF] text-white">
-              <Smartphone className="h-4 w-4" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+      <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col rounded-3xl border border-white/10 bg-[#12141D] text-[#F3F4F8] shadow-2xl shadow-indigo-500/10">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#30D158]/10 text-[#30D158]">
+              <Smartphone className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">
-                Android APK & Сборка GitHub Actions
-              </h2>
+              <h2 className="text-lg font-semibold">Android APK & Сборка GitHub Actions</h2>
               <p className="text-xs text-[#8E93A6]">
-                Готовый воркфлоу для автоматической сборки подписанного .apk
+                Capacitor + @wllama/wllama для автоматической сборки APK
               </p>
             </div>
           </div>
-
           <button
             onClick={() => setApkModalOpen(false)}
-            className="rounded-xl p-1.5 text-[#8E93A6] transition hover:bg-white/10 hover:text-white"
+            className="rounded-full p-2 text-[#8E93A6] transition hover:bg-white/5 hover:text-white"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Badges bar */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-white/5 bg-white/[0.02] px-5 py-3 text-xs">
-          <span className="flex items-center gap-1.5 rounded-lg border border-[#30D158]/30 bg-[#30D158]/10 px-2.5 py-1 text-[#30D158]">
+        {/* Badges / Highlights */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-white/5 bg-white/[0.02] px-6 py-3 text-xs">
+          <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-400">
             <ShieldCheck className="h-3.5 w-3.5" />
-            Подписанный APK (debug.keystore)
+            Capacitor 6 + Android
           </span>
-          <span className="flex items-center gap-1.5 rounded-lg border border-[#0A84FF]/30 bg-[#0A84FF]/10 px-2.5 py-1 text-[#0A84FF]">
+          <span className="flex items-center gap-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 font-medium text-indigo-400">
             <Cpu className="h-3.5 w-3.5" />
-            Фильтр: arm64-v8a (x3 ускорение)
+            @wllama/wllama (WASM Engine)
           </span>
-          <span className="flex items-center gap-1.5 rounded-lg border border-[#7C86FF]/30 bg-[#7C86FF]/10 px-2.5 py-1 text-[#7C86FF]">
+          <span className="flex items-center gap-1.5 rounded-full border border-purple-500/20 bg-purple-500/10 px-3 py-1 font-medium text-purple-400">
             <Terminal className="h-3.5 w-3.5" />
-            largeHeap=true & pickFirst .so
+            Чистая генерация в GitHub Actions
           </span>
         </div>
 
-        {/* Tab Selector */}
-        <div className="flex border-b border-white/10 px-5 pt-3 gap-2">
+        {/* Tabs */}
+        <div className="flex border-b border-white/10 px-6 pt-3">
           <button
             onClick={() => setActiveTab('workflow')}
-            className={`pb-2.5 text-xs font-semibold border-b-2 transition ${
+            className={`border-b-2 px-4 py-2 text-xs font-medium transition ${
               activeTab === 'workflow'
-                ? 'border-[#5E6AD2] text-white'
+                ? 'border-[#5E6AD2] text-[#7C86FF]'
                 : 'border-transparent text-[#8E93A6] hover:text-white'
             }`}
           >
             .github/workflows/build-apk.yml
           </button>
           <button
-            onClick={() => setActiveTab('gradle')}
-            className={`pb-2.5 text-xs font-semibold border-b-2 transition ${
-              activeTab === 'gradle'
-                ? 'border-[#5E6AD2] text-white'
+            onClick={() => setActiveTab('capacitor')}
+            className={`border-b-2 px-4 py-2 text-xs font-medium transition ${
+              activeTab === 'capacitor'
+                ? 'border-[#5E6AD2] text-[#7C86FF]'
                 : 'border-transparent text-[#8E93A6] hover:text-white'
             }`}
           >
-            android/app/build.gradle
+            capacitor.config.json
           </button>
           <button
-            onClick={() => setActiveTab('manifest')}
-            className={`pb-2.5 text-xs font-semibold border-b-2 transition ${
-              activeTab === 'manifest'
-                ? 'border-[#5E6AD2] text-white'
+            onClick={() => setActiveTab('vite')}
+            className={`border-b-2 px-4 py-2 text-xs font-medium transition ${
+              activeTab === 'vite'
+                ? 'border-[#5E6AD2] text-[#7C86FF]'
                 : 'border-transparent text-[#8E93A6] hover:text-white'
             }`}
           >
-            AndroidManifest.xml
+            vite.config.ts
           </button>
         </div>
 
-        {/* Code View */}
-        <div className="relative flex-1 overflow-y-auto bg-[#050608] p-4 font-mono text-xs text-[#F5F7FA]">
-          <button
-            onClick={handleCopy}
-            className="absolute top-3 right-3 flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/10 px-3 py-1.5 text-xs text-white backdrop-blur hover:bg-white/20 transition"
-          >
-            {copied ? (
-              <>
-                <Check className="h-3.5 w-3.5 text-[#30D158]" />
-                <span className="text-[#30D158]">Скопировано!</span>
-              </>
-            ) : (
-              <>
-                <Copy className="h-3.5 w-3.5" />
-                <span>Скопировать код</span>
-              </>
-            )}
-          </button>
-          <pre className="overflow-x-auto leading-relaxed">
-            <code>{activeContent}</code>
+        {/* Code Content */}
+        <div className="relative flex-1 overflow-auto p-6 font-mono text-xs">
+          <div className="absolute right-8 top-8 z-10">
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-[#8E93A6] backdrop-blur-md transition hover:bg-white/10 hover:text-white"
+            >
+              {copied ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  <span className="text-emerald-400">Скопировано</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5" />
+                  <span>Скопировать код</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          <pre className="rounded-xl border border-white/5 bg-[#090A0F] p-4 text-[#D3D7E3] leading-relaxed overflow-x-auto">
+            <code>{getActiveCode()}</code>
           </pre>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-white/10 bg-[#090A0F]/80 px-5 py-3 text-xs text-[#8E93A6]">
-          <span>После пуша в GitHub Actions артефакт появится во вкладке Actions → Summary</span>
+        <div className="flex items-center justify-between border-t border-white/10 px-6 py-4 text-xs text-[#8E93A6]">
+          <span>
+            После пуша в GitHub Actions артефакт появится во вкладке Actions → Summary
+          </span>
           <button
             onClick={() => setApkModalOpen(false)}
-            className="rounded-xl bg-white/10 px-4 py-1.5 font-semibold text-white hover:bg-white/20"
+            className="rounded-xl bg-white/10 px-4 py-2 font-medium text-white transition hover:bg-white/15"
           >
             Закрыть
           </button>

@@ -1,0 +1,9 @@
+{
+  "appId": "com.pocketcore.offlineai",
+  "appName": "PocketCore AI",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}
