@@ -140,8 +140,13 @@ export class LlamaService {
           top_p: settings.topP,
         },
         abortSignal: this.abortController.signal,
-        onNewToken: (_token, _piece, currentText) => {
-          if (this.abortController?.signal.aborted) return;
+        onNewToken: (_token: any, _piece: any, currentText: string, optionals?: any) => {
+          if (this.abortController?.signal.aborted) {
+            if (optionals && typeof optionals.abortSignal === 'function') {
+              optionals.abortSignal();
+            }
+            return;
+          }
           tokenCount++;
           const newChunk = currentText.slice(accumulatedText.length);
           accumulatedText = currentText;
@@ -155,7 +160,7 @@ export class LlamaService {
             tokensPerSecond,
           });
         },
-      });
+      } as any);
 
       this.isGenerating = false;
       const totalDurationSec = Math.max((Date.now() - startTime) / 1000, 0.05);
