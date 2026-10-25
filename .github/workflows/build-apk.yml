@@ -19,42 +19,41 @@ jobs:
         with:
           node-version: '22'
 
-      - name: 3. Setup Java JDK 21 (Temurin)
+      - name: 3. Setup Java JDK 17 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '21'
+          java-version: '17'
 
-      - name: 4. Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: 5. Clean Broken Artifacts & Install NPM Dependencies
+      - name: 4. Clean Poisoned Lockfiles & Install NPM Packages
         run: |
-          rm -rf android dist node_modules package-lock.json
-          npm install --legacy-peer-deps
+          rm -rf android dist node_modules package-lock.json bun.lock babel.config.js metro.config.js index.js app.json
+          npm install --no-package-lock --legacy-peer-deps
 
-      - name: 6. Build Production Web Bundle (Vite)
+      - name: 5. Build Production Web Bundle (Vite)
         run: npm run build
 
-      - name: 7. Generate Fresh Native Android Project via Capacitor
+      - name: 6. Generate Native Android Project via Capacitor
         run: |
           npx cap add android
           npx cap sync android
 
-      - name: 8. Configure AndroidManifest (LargeHeap & Cleartext/HTTPS)
+      - name: 7. Configure AndroidManifest & Gradle Memory
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST" ]; then
             sed -i 's/<application/<application android:largeHeap="true" android:usesCleartextTraffic="true"/g' "$MANIFEST"
           fi
+          echo "" >> android/gradle.properties
+          echo "org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8" >> android/gradle.properties
 
-      - name: 9. Build Signed Installable APK via Gradle
+      - name: 8. Build Signed Installable APK via Gradle
         working-directory: ./android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: 10. Rename and Upload Ready-to-Install APK
+      - name: 9. Upload Ready-to-Install APK
         uses: actions/upload-artifact@v4
         with:
           name: PocketCore-Offline-AI-APK

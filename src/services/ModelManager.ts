@@ -38,33 +38,33 @@ export class ModelManagerService {
   }
 
   /**
-   * Checks if a model file is physically present in local OPFS / Cache
+   * Checks if a model file is physically present in local OPFS storage
    */
   public async isModelInstalled(model: ModelInfo): Promise<boolean> {
-    if (this.installedModels.has(model.id)) {
-      return true;
-    }
-
     try {
       const wllama = await llamaService.getWllama();
       if (wllama?.modelManager) {
         const models = await wllama.modelManager.getModels();
-        const found = models.some((m) => m.url === model.url && m.size > 0);
+        const found = models.some(
+          (m) => m.url === model.url && m.size >= model.expectedMinBytes * 0.8
+        );
         if (found) {
-          this.installedModels.add(model.id);
-          this.persistInstalled();
+          if (!this.installedModels.has(model.id)) {
+            this.installedModels.add(model.id);
+            this.persistInstalled();
+          }
           return true;
         }
       }
-    } catch (e) {
-      // OPFS or wllama modelManager not available
+    } catch {
+      // Fall back to stored metadata if OPFS query fails temporarily
     }
 
-    return false;
+    return this.installedModels.has(model.id);
   }
 
   /**
-   * Downloads model file using chunked streaming directly to OPFS disk cache
+   * Real streaming download directly from HuggingFace into OPFS via @wllama/wllama
    */
   public async downloadModel(
     model: ModelInfo,
@@ -77,91 +77,55 @@ export class ModelManagerService {
     let lastTime = Date.now();
 
     try {
-      const wllama = await llamaService.getWllama();
-      let realDownloadSuccess = false;
-
-      // Attempt real download via Wllama ModelManager / OPFS if online
-      if (wllama?.modelManager && navigator.onLine) {
-        try {
-          await wllama.modelManager.downloadModel(model.url, {
-            progressCallback: (opts) => {
-              if (abortCtrl.signal.aborted) return;
-              const now = Date.now();
-              const timeDelta = Math.max((now - lastTime) / 1000, 0.05);
-              const bytesDelta = opts.loaded - lastBytes;
-              const speed = Math.max(bytesDelta / timeDelta, 0);
-
-              lastBytes = opts.loaded;
-              lastTime = now;
-
-              const total = opts.total > 0 ? opts.total : model.expectedMinBytes;
-              const percent = Math.min(Math.round((opts.loaded / total) * 100), 100);
-
-              onProgress({
-                modelId: model.id,
-                bytesWritten: opts.loaded,
-                contentLength: total,
-                percent,
-                speedBytesPerSec: speed,
-              });
-            },
-          });
-          realDownloadSuccess = true;
-        } catch (downloadErr) {
-          console.warn('[ModelManager] Direct OPFS stream download fallback:', downloadErr);
-        }
-      }
-
-      // If simulated or direct stream needed
-      if (!realDownloadSuccess) {
-        const totalBytes = model.expectedMinBytes;
-        const chunkSize = 25 * 1024 * 1024; // 25 MB steps
-        let currentBytes = 0;
-
-        while (currentBytes < totalBytes) {
+      // Directly invoke Wllama's loadModelFromUrl which writes chunks directly to OPFS
+      await llamaService.loadModel(model.url, {
+        n_ctx: 2048,
+        n_threads: 4,
+        onProgress: (loaded, total) => {
           if (abortCtrl.signal.aborted) {
             throw new Error('Загрузка отменена пользователем');
           }
 
-          await new Promise((r) => setTimeout(r, 110));
-          currentBytes = Math.min(currentBytes + chunkSize, totalBytes);
-
           const now = Date.now();
           const timeDelta = Math.max((now - lastTime) / 1000, 0.05);
-          const bytesDelta = currentBytes - lastBytes;
-          const speed = bytesDelta / timeDelta;
-          lastBytes = currentBytes;
+          const bytesDelta = loaded - lastBytes;
+          const speed = Math.max(bytesDelta / timeDelta, 0);
+
+          lastBytes = loaded;
           lastTime = now;
 
-          const percent = Math.min(Math.round((currentBytes / totalBytes) * 100), 100);
+          const totalBytes = total > 0 ? total : model.expectedMinBytes;
+          const percent = Math.min(Math.round((loaded / totalBytes) * 100), 100);
 
           onProgress({
             modelId: model.id,
-            bytesWritten: currentBytes,
+            bytesWritten: loaded,
             contentLength: totalBytes,
             percent,
             speedBytesPerSec: speed,
           });
-        }
-      }
+        },
+      });
 
+      // Model is fully downloaded and loaded into WASM RAM
       this.activeJobs.delete(model.id);
       this.installedModels.add(model.id);
       this.persistInstalled();
-
-      // Auto mount model into active WASM llama engine
-      await llamaService.loadModel(model.url);
       await this.saveActiveModelId(model.id);
 
       return model.url;
-    } catch (err) {
+    } catch (err: any) {
       this.activeJobs.delete(model.id);
-      throw err;
+      console.error('[ModelManager] Download failed:', err);
+      // Ensure failed/aborted download does NOT get marked as installed
+      this.installedModels.delete(model.id);
+      this.persistInstalled();
+      throw new Error(err?.message || 'Не удалось скачать модель с HuggingFace. Проверьте интернет-соединение.');
     }
   }
 
   /**
-   * Cancels download and purges partial temporary file
+   * Cancels download and frees active job
    */
   public async cancelDownload(modelId: string): Promise<void> {
     const job = this.activeJobs.get(modelId);
@@ -175,7 +139,7 @@ export class ModelManagerService {
    * Removes model completely from OPFS disk and releases RAM
    */
   public async deleteModel(model: ModelInfo): Promise<void> {
-    // Release from RAM if active
+    // Release from RAM if currently loaded
     if (llamaService.getLoadedModelPath() === model.url) {
       await llamaService.releaseCurrentModel();
     }
@@ -203,7 +167,7 @@ export class ModelManagerService {
   }
 
   /**
-   * Activates an already installed model into RAM
+   * Activates an already installed model from OPFS into RAM
    */
   public async activateModel(model: ModelInfo): Promise<void> {
     await llamaService.loadModel(model.url);
@@ -223,8 +187,8 @@ export class ModelManagerService {
         if (estimate.quota && estimate.usage !== undefined) {
           freeDiskGB = parseFloat(((estimate.quota - estimate.usage) / (1024 * 1024 * 1024)).toFixed(1));
         }
-      } catch (e) {
-        // Fallback to defaults
+      } catch {
+        // Fallback to estimation
       }
     }
 
@@ -252,7 +216,7 @@ export class ModelManagerService {
     const url = llamaService.getLoadedModelPath();
     if (!url) return null;
     const found = PRESET_MODELS.find((m) => m.url === url || url.includes(m.filename));
-    return found ? found.name : 'Пользовательская GGUF';
+    return found ? found.name : 'Локальная GGUF';
   }
 
   public async saveActiveModelId(id: string | null): Promise<void> {
